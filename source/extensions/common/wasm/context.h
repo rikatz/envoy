@@ -290,6 +290,9 @@ public:
     return dynamic_cast<T*>(it->second.get());
   }
 
+private:
+  void onDelete() override;
+
 protected:
   friend class Wasm;
 

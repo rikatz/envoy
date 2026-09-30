@@ -1,0 +1,25 @@
+diff --git a/src/wasm.cc b/src/wasm.cc
+--- a/src/wasm.cc
++++ b/src/wasm.cc
+@@ -557,11 +557,15 @@ bool WasmHandleBase::canary(const std::shared_ptr<PluginBase> &plugin,
+   }
+-  if (!configuration_canary_handle->wasm()->configure(root_context, plugin)) {
++  const bool canary_passed = configuration_canary_handle->wasm()->configure(root_context, plugin);
++  if (!canary_passed) {
+     configuration_canary_handle->wasm()->fail(FailState::ConfigureFailed,
+                                               "Failed to configure base Wasm plugin");
+-    plugin_canary_cache_[plugin->key()] = false;
+-    return false;
++  } else {
++    configuration_canary_handle->kill();
+   }
+-  configuration_canary_handle->kill();
+-  plugin_canary_cache_[plugin->key()] = true;
+-  return true;
++  if (plugin_canary_cache_.size() >= 1024) {
++    // ponytail: cap at 1024; use handle-aware eviction if live-key revalidation becomes costly.
++    plugin_canary_cache_.erase(plugin_canary_cache_.begin());
++  }
++  plugin_canary_cache_[plugin->key()] = canary_passed;
++  return canary_passed;
+ }

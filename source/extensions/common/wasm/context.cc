@@ -195,6 +195,13 @@ Upstream::ClusterManager& Context::clusterManager() const { return envoyWasm()->
 
 void Context::error(std::string_view message) { ENVOY_LOG(trace, message); }
 
+void Context::onDelete() {
+  proxy_wasm::ContextBase::onDelete();
+  if (isRootContext() && !isVmContext() && envoyWasm() != nullptr) {
+    envoyWasm()->cleanupRootContext(id());
+  }
+}
+
 uint64_t Context::getCurrentTimeNanoseconds() {
   return std::chrono::duration_cast<std::chrono::nanoseconds>(
              envoyWasm()->time_source_.systemTime().time_since_epoch())
@@ -1221,6 +1228,7 @@ WasmResult Context::defineMetric(uint32_t metric_type, std::string_view name,
     return WasmResult::BadArgument;
   }
   auto type = static_cast<MetricType>(metric_type);
+  auto& metric_ids = envoyWasm()->metric_ids_by_root_[rootContext()->id()];
   // TODO: Consider rethinking the scoping policy as it does not help in this case.
   Stats::StatNameManagedStorage storage(toAbslStringView(name), envoyWasm()->scope_->symbolTable());
   Stats::StatName stat_name = storage.statName();
@@ -1231,6 +1239,7 @@ WasmResult Context::defineMetric(uint32_t metric_type, std::string_view name,
     Stats::Counter* c = &Stats::Utility::counterFromElements(
         *envoyWasm()->scope_, {envoyWasm()->custom_stat_namespace_, stat_name});
     envoyWasm()->counters_.emplace(id, c);
+    metric_ids.push_back(id);
     *metric_id_ptr = id;
     return WasmResult::Ok;
   }
@@ -1240,6 +1249,7 @@ WasmResult Context::defineMetric(uint32_t metric_type, std::string_view name,
         *envoyWasm()->scope_, {envoyWasm()->custom_stat_namespace_, stat_name},
         Stats::Gauge::ImportMode::Accumulate);
     envoyWasm()->gauges_.emplace(id, g);
+    metric_ids.push_back(id);
     *metric_id_ptr = id;
     return WasmResult::Ok;
   }
@@ -1249,6 +1259,7 @@ WasmResult Context::defineMetric(uint32_t metric_type, std::string_view name,
       *envoyWasm()->scope_, {envoyWasm()->custom_stat_namespace_, stat_name},
       Stats::Histogram::Unit::Unspecified);
   envoyWasm()->histograms_.emplace(id, h);
+  metric_ids.push_back(id);
   *metric_id_ptr = id;
   return WasmResult::Ok;
 }

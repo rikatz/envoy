@@ -104,6 +104,18 @@ Wasm::Wasm(WasmHandleSharedPtr base_wasm_handle, Event::Dispatcher& dispatcher)
 void Wasm::error(std::string_view message) { ENVOY_LOG(error, "Wasm VM failed {}", message); }
 
 void Wasm::setTimerPeriod(uint32_t context_id, std::chrono::milliseconds new_period) {
+  if (new_period.count() <= 0) {
+    auto timer = timer_.find(context_id);
+    if (timer != timer_.end()) {
+      if (timer->second) {
+        timer->second->disableTimer();
+      }
+      timer_.erase(timer);
+    }
+    timer_period_.erase(context_id);
+    return;
+  }
+
   auto& period = timer_period_[context_id];
   auto& timer = timer_[context_id];
   bool was_running = timer && period.count() > 0;
@@ -111,32 +123,57 @@ void Wasm::setTimerPeriod(uint32_t context_id, std::chrono::milliseconds new_per
   if (was_running) {
     timer->disableTimer();
   }
-  if (period.count() > 0) {
-    timer = dispatcher_.createTimer(
-        [weak = std::weak_ptr<Wasm>(std::static_pointer_cast<Wasm>(shared_from_this())),
-         context_id]() {
-          auto shared = weak.lock();
-          if (shared) {
-            shared->tickHandler(context_id);
-          }
-        });
-    timer->enableTimer(period);
-  }
+  timer = dispatcher_.createTimer(
+      [weak = std::weak_ptr<Wasm>(std::static_pointer_cast<Wasm>(shared_from_this())),
+       context_id]() {
+        auto shared = weak.lock();
+        if (shared) {
+          shared->tickHandler(context_id);
+        }
+      });
+  timer->enableTimer(period);
 }
 
 void Wasm::tickHandler(uint32_t root_context_id) {
-  auto period = timer_period_.find(root_context_id);
-  auto timer = timer_.find(root_context_id);
-  if (period == timer_period_.end() || timer == timer_.end() || !on_tick_) {
+  if (timer_period_.find(root_context_id) == timer_period_.end() ||
+      timer_.find(root_context_id) == timer_.end() || !on_tick_) {
     return;
   }
   auto context = getContext(root_context_id);
-  if (context) {
-    context->onTick(0);
+  if (!context) {
+    return;
   }
-  if (timer->second && period->second.count() > 0) {
+  context->onTick(0);
+
+  // onTick can shut down the root or disable its timer, invalidating the original map entries.
+  auto period = timer_period_.find(root_context_id);
+  auto timer = timer_.find(root_context_id);
+  if (period != timer_period_.end() && timer != timer_.end() && timer->second &&
+      period->second.count() > 0) {
     timer->second->enableTimer(period->second);
   }
+}
+
+void Wasm::cleanupRootContext(uint32_t root_context_id) {
+  auto timer = timer_.find(root_context_id);
+  if (timer != timer_.end()) {
+    if (timer->second) {
+      timer->second->disableTimer();
+    }
+    timer_.erase(timer);
+  }
+  timer_period_.erase(root_context_id);
+
+  auto metric_ids = metric_ids_by_root_.find(root_context_id);
+  if (metric_ids == metric_ids_by_root_.end()) {
+    return;
+  }
+  for (const auto metric_id : metric_ids->second) {
+    counters_.erase(metric_id);
+    gauges_.erase(metric_id);
+    histograms_.erase(metric_id);
+  }
+  metric_ids_by_root_.erase(metric_ids);
 }
 
 Wasm::~Wasm() {

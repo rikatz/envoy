@@ -2,6 +2,8 @@ load("@rules_cc//cc:defs.bzl", "cc_library")
 
 licenses(["notice"])  # Apache 2
 
+exports_files(["proxy-wasm-cpp-host-cache.patch"])
+
 alias(
     name = "buildifier",
     actual = "@buildifier",

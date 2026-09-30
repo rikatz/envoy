@@ -4,6 +4,7 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <vector>
 
 #include "envoy/common/exception.h"
 #include "envoy/extensions/wasm/v3/wasm.pb.h"
@@ -114,11 +115,15 @@ protected:
   absl::flat_hash_map<uint32_t, Stats::Counter*> counters_;
   absl::flat_hash_map<uint32_t, Stats::Gauge*> gauges_;
   absl::flat_hash_map<uint32_t, Stats::Histogram*> histograms_;
+  absl::flat_hash_map<uint32_t, std::vector<uint32_t>> metric_ids_by_root_;
 
   CreateContextFn create_context_for_testing_;
   CreateContextFn create_root_context_for_testing_;
   Network::DnsResolverSharedPtr dns_resolver_;
   uint32_t dns_token_ = 1;
+
+private:
+  void cleanupRootContext(uint32_t root_context_id);
 };
 using WasmSharedPtr = std::shared_ptr<Wasm>;
 
